@@ -225,9 +225,13 @@ const serveur = http.createServer(async (req, res) => {
       if (req.headers["x-admin-token"] !== ADMIN_TOKEN)
         return envoyerJSON(res, 403, { erreur: "Lien d'administration invalide." });
       const token = url.searchParams.get("token");
+      // Étape 1 : retrouver le parcours par son token
+      const parcours = (await sbGet("parcours", `select=*&token=eq.${token}`))[0];
+      if (!parcours) return envoyerJSON(res, 404, { erreur: "Parcours introuvable." });
+      // Étape 2 : récupérer les participations liées à ce parcours
       const lignes = await sbGet(
         "participations",
-        `select=surnom,seance_index,score,commentaire,termine,updated_at&parcours_id=(select id from parcours where token eq.${token})&order=updated_at.desc`
+        `select=surnom,seance_index,score,commentaire,termine,updated_at&parcours_id=eq.${parcours.id}&order=updated_at.desc`
       );
       return envoyerJSON(res, 200, lignes);
     } catch (e) { return envoyerJSON(res, 500, { erreur: e.message }); }
