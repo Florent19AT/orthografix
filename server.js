@@ -17,10 +17,35 @@ const SUPABASE_URL = process.env.SUPABASE_URL;           // ex. https://abc.supa
 const SUPABASE_KEY = process.env.SUPABASE_KEY;            // clé anon
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "demo-secret";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_MODELES_EXCLUS = [/whisper/, /tts/, /guard/, /prompt/]; // modèles non conversationnels
+let MODELE_CHOISI = null; // déterminé automatiquement au premier appel
+
+/* Sélectionne automatiquement un modèle de conversation disponible sur le compte.
+   GROQ_MODEL (variable d'environnement) permet d'imposer un modèle précis si vous le souhaitez. */
+async function choisirModele() {
+  if (MODELE_CHOISI) return MODELE_CHOISI;
+  if (process.env.GROQ_MODEL) {
+    MODELE_CHOISI = process.env.GROQ_MODEL;
+    return MODELE_CHOISI;
+  }
+  const r = await fetch("https://api.groq.com/openai/v1/models", {
+    headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+  });
+  if (!r.ok) throw new Error(`Impossible de lister les modèles Groq (${r.status}).`);
+  const data = await r.json();
+  const candidats = (data.data || [])
+    .map((m) => m.id)
+    .filter((id) => !GROQ_MODELES_EXCLUS.some((re) => re.test(id)))
+    .sort(); // tri alphabétique : choisit un modèle stable par défaut
+  if (!candidats.length) throw new Error("Aucun modèle de conversation disponible sur ce compte Groq.");
+  MODELE_CHOISI = candidats[0];
+  console.log("Modèle Groq retenu :", MODELE_CHOISI);
+  return MODELE_CHOISI;
+}
 
 /* ---------- Appel au LLM (Groq, quota gratuit) ---------- */
 async function appelerLLM(messages, formatJSON) {
+  const modele = await choisirModele();
   const reponse = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
@@ -28,7 +53,7 @@ async function appelerLLM(messages, formatJSON) {
       Authorization: `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: modele,
       messages,
       temperature: 0.4,
       ...(formatJSON ? { response_format: { type: "json_object" } } : {}),
